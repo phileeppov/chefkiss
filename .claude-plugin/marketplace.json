@@ -1,0 +1,12 @@
+{
+  "name": "phileeppov",
+  "description": "Claude Code mods by Nikita Filippov",
+  "owner": { "name": "Nikita Filippov" },
+  "plugins": [
+    {
+      "name": "chefkiss",
+      "source": "./",
+      "description": "React with 🤌 🎯 or 💩 under Claude’s answers. Claude turns them into lessons for new conversations."
+    }
+  ]
+}

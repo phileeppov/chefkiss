@@ -1,0 +1,10 @@
+{
+  "name": "chefkiss",
+  "version": "0.3.6",
+  "description": "React with 🤌 🎯 or 💩 under Claude’s answers. Claude turns them into lessons for new conversations.",
+  "author": {
+    "name": "Nikita Filippov"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
