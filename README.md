@@ -42,7 +42,7 @@ At the prompt of a Claude Code terminal session:
 /plugin install chefkiss --marketplace phileeppov/chefkiss
 ```
 
-Answer `y` to add the marketplace, then pick the user scope so the mod also loads in the desktop app. From a shell, the same is `claude plugin install chefkiss --marketplace phileeppov/chefkiss`. In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `phileeppov/chefkiss`, then Add plugin.
+Answer `y` to add the marketplace, then pick the user scope so the mod also loads in the desktop app. From a shell, the same is `claude plugin install chefkiss --marketplace phileeppov/chefkiss`. In the desktop app: click + next to the prompt box, then Add plugins (or Plugins, then Browse plugins). In the plugin browser, click + (Add marketplace), choose Add from a repository, enter `phileeppov/chefkiss` and click Sync. Then click + on chefkiss. Typing `/plugin` opens Settings → Plugins, where Add → Add marketplace leads to the same window.
 
 Organizations that allow only managed mods (`allowManagedModsOnly`) or only managed hooks (`allowManagedHooksOnly`) will not load it.
 
