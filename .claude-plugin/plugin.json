@@ -1,6 +1,6 @@
 {
   "name": "chefkiss",
-  "version": "0.3.6",
+  "version": "1.0.0",
   "description": "React with 🤌 🎯 or 💩 under Claude’s answers. Claude turns them into lessons for new conversations.",
   "author": {
     "name": "Nikita Filippov"

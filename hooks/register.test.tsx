@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import type { ReactionSettings } from '../types'
-import { blockKey, splitBlocks } from './logic'
+import { blockKey, splitBlocks, xIntent } from './logic'
 
 // A slow store in a test: a settings read waits for this to resolve. The test runner has timers; the mod's types do not.
 declare function setTimeout(fn: (value?: unknown) => void, ms: number): unknown
@@ -543,6 +543,25 @@ test('a refused model: Haiku stands in for Sonnet, and with both down the person
   expect(lessonKeys(mem).length).toBe(1)
   expect(toasts.filter(t => t.includes('Claude could not write a lesson (api-error)')).length).toBe(1)
   // No line is left hanging at "…".
+  expect(await ui.find({ type: 'Text', text: /^…$/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a line refused as a quote is asked for once more, told why; refused twice, no line and no lesson', async ($, on) => {
+  const replies = ['понял: чашка чая не спасёт, но запах', 'понял: коротко, без пересказа ответа']
+  const mem = world(on, { reply: () => ({ isAnswered: true, text: replies.shift() ?? 'понял: чашка чая не спасёт, но запах', usage: USAGE }) })
+  engineText(on)
+  await start($)
+  const ui = await $.ui.mount({ ...MESSAGE(ANSWER), surface: 'desktop' })
+  await ui.press({ key: 'm1:slop' })
+  expect(models).toEqual(['sonnet', 'sonnet'])
+  expect(prompts[1]).toContain('was refused: it repeats «чашка чая не спасёт но»')
+  expect((await ui.find({ type: 'Text', text: /понял: коротко, без пересказа ответа/ }))?.text).toBe('понял: коротко, без пересказа ответа')
+  expect(lessonKeys(mem).length).toBe(1)
+  // Both tries quote the answer: the reaction stays, with no line, no lesson and nothing left at "…".
+  await ui.press({ key: 'm1:fire' })
+  expect(models.length).toBe(4)
+  expect(lessonKeys(mem).length).toBe(1)
   expect(await ui.find({ type: 'Text', text: /^…$/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -1090,14 +1109,18 @@ test('Copy and Post on X carry the card with the verdict and the link; the pane 
   await start($)
   const again = await $.ui.mount(PANE('desktop'))
   await again.press({ key: 'copy-profile' })
-  const card = 'Мне как обычно, по версии Claude\n\nТерпит всё, кроме пересказа\n\nвывод первым\nбез воды\n\nпо 3 реакциям · github.com/phileeppov/chefkiss'
+  const card = 'У Claude ко мне пара замечаний\n\nТерпит всё, кроме пересказа\n\nвывод первым\nбез воды\n\nпо 3 реакциям · github.com/phileeppov/chefkiss'
   expect(copied).toEqual([card])
   expect(copied[0]).not.toContain('taste')
   // Post on X opens a new post with the same card in it.
   const post = await again.find({ type: 'Link' })
   expect(post?.type).toBe('Link')
+  expect(post?.props.href).toBe(xIntent(card))
+  // The desktop draws a Link only with an href in the form a URL parser writes back.
+  expect(new URL(String(post?.props.href)).href).toBe(post?.props.href)
   expect(post?.props.label).toBe('Post on X')
-  expect(post?.props.href).toBe(`https://x.com/intent/post?text=${encodeURIComponent(card)}`)
+  // In a narrow pane the actions wrap to the left, under the count.
+  expect((await again.findAll({ type: 'Box' })).some(b => b.props.flexWrap === 'wrap' && b.props.justifyContent === 'space-between')).toBe(true)
   await again.unmount()
   // The terminal gets no X link: one without link support would print the whole encoded address.
   const term = await $.ui.mount(PANE('terminal'))

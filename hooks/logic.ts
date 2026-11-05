@@ -89,9 +89,18 @@ export function pickFragment(sel: { text: string; requestId?: string } | undefin
   return ''
 }
 
+// A cut never splits an emoji in half: half a surrogate pair makes encodeURIComponent throw, and the X link with it.
 export function clip(text: string, size: number): string {
   const t = text.replace(/\s+/g, ' ').trim()
-  return t.length > size ? `${t.slice(0, size - 1).trimEnd()}…` : t
+  return t.length > size ? `${t.slice(0, size - 1).replace(/[\uD800-\uDBFF]$/, '').trimEnd()}…` : t
+}
+
+// The answer as the model reading a reaction sees it: whole up to `head + tail` characters; a longer one as its
+// start and its end, since a reaction is often to how an answer ends, and the middle tells least.
+export function answerEnds(text: string, head = 800, tail = 400): { text: string; isCut: boolean } {
+  const t = [...text.replace(/\s+/g, ' ').trim()]
+  if (t.length <= head + tail) return { text: t.join(''), isCut: false }
+  return { text: `${t.slice(0, head).join('').trimEnd()} … ${t.slice(-tail).join('').trimStart()}`, isCut: true }
 }
 
 export function isRussian(text: string): boolean {
@@ -119,23 +128,31 @@ export function linePrompt(kind: Kind, answer: string, frag: string): { system: 
     `Write ONE short line, at most 60 characters, in ${ru ? 'Russian' : 'English'}, starting with "${start}".`,
     'Say what you take from it about approach, tone or form — what to keep, or what to avoid.',
     'Generalize: no details of the topic, no names, no quotes of private content. No thanks, no emoji.',
+    'Never repeat five or more words in a row from the answer or the selected part: a line that does is thrown away.',
     warm,
   ].join(' ')
+  const seen = answerEnds(answer)
   const prompt = [
     `Reaction: ${EMOJI[kind]} — ${MEANING[kind]}.`,
     frag ? `The user selected this part: «${clip(frag, 300)}».` : 'The reaction is on the whole answer.',
-    `Your answer (start): «${clip(answer, 1200)}»`,
+    `Your answer${seen.isCut ? ' (its start and its end)' : ''}: «${seen.text}»`,
   ].join('\n')
   return { system, prompt }
 }
 
-// The model's line: one line, no quotes. A long one is cut at the end of a phrase or a comma, not mid-word.
+// The model's line: one line, no quotes. A long one is cut at the end of a phrase, not mid-word: a full stop,
+// a semicolon or a dash first, a comma only without them, since a comma often sits inside a phrase
+// («use concrete, specific wording» cut at its comma reads «use concrete»). With no such mark, at the last space,
+// with «…»: «the hidden failure…», not «the hidden failure mec…».
 export function cleanLine(text: string, size = 90): string {
   const one = (text.split('\n').map(s => s.trim()).find(Boolean) ?? '').replace(/^["«»'“”]+|["«»'“”]+$/g, '').replace(/\s+/g, ' ')
   if (one.length <= size) return one
   const head = one.slice(0, size)
-  const cut = Math.max(head.lastIndexOf('. '), head.lastIndexOf('; '), head.lastIndexOf(', '), head.lastIndexOf(' — '))
-  return cut >= 30 ? head.slice(0, cut).trim() : clip(one, size)
+  const end = Math.max(head.lastIndexOf('. '), head.lastIndexOf('; '), head.lastIndexOf(' — '))
+  const cut = end >= 30 ? end : head.lastIndexOf(', ')
+  if (cut >= 30) return head.slice(0, cut).trim()
+  const space = one.lastIndexOf(' ', size - 1)
+  return space >= 30 ? `${one.slice(0, space).replace(/[\s,;:—–-]+$/, '')}…` : clip(one, size)
 }
 
 // An answer by blocks: paragraph, list, table, code, each whole.
@@ -215,23 +232,37 @@ export function shortHash(text: string): string {
   return x.toString(36)
 }
 
+// An apostrophe or a hyphen inside a word keeps it one word: «work-from-home» and «reader's» are not three and two,
+// which made a line that only names the topic look like a five-word quote.
 function words(text: string): string[] {
-  return plain(text).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+  return plain(text)
+    .toLowerCase()
+    .replace(/(?<=[\p{L}\p{N}])['’-](?=[\p{L}\p{N}])/gu, '')
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
 }
 
 // The line goes into the memory of every future conversation, so it is checked: it starts with «понял / got it / рад»
 // and has no five words in a row from the answer or the selected piece, which would be a quote, not a lesson.
-export function acceptLine(raw: string, answer: string, frag: string): string {
+// A refused line comes with the reason, said to the model when it is asked once more.
+export function checkLine(raw: string, answer: string, frag: string): { line: string; why: string } {
   const line = cleanLine(raw)
-  if (!/^(понял|got it|рад|glad)/i.test(line)) return ''
+  if (!/^(понял|got it|рад|glad)/i.test(line)) return { line: '', why: 'it must start with "got it:" (or "понял:" in Russian)' }
+  // A bare «Got it.» is no lesson.
+  if (words(line.replace(/^(понял|got it|рад|glad)/i, '')).length === 0) return { line: '', why: 'it says nothing after "got it:"' }
   // Links, commands and paths are not a lesson about taste but a plant in the memory of every future conversation.
-  if (/https?:|www\.|`|[\\/]/i.test(line)) return ''
+  if (/https?:|www\.|`|[\\/]/i.test(line)) return { line: '', why: 'it must hold no links, paths, slashes or backticks' }
   const own = words(line)
   const source = ` ${words(`${answer} ${frag}`).join(' ')} `
   for (let i = 0; i + 5 <= own.length; i++) {
-    if (source.includes(` ${own.slice(i, i + 5).join(' ')} `)) return ''
+    const run = own.slice(i, i + 5).join(' ')
+    if (source.includes(` ${run} `)) return { line: '', why: `it repeats «${run}» from the answer; say it in your own words` }
   }
-  return line
+  return { line, why: '' }
+}
+
+export function acceptLine(raw: string, answer: string, frag: string): string {
+  return checkLine(raw, answer, frag).line
 }
 
 const RULES = [
@@ -427,7 +458,7 @@ export function cardText(me: Profile, link: string, limit = X_LIMIT): string {
   const lines = me.text.split('\n').filter(Boolean)
   const ru = me.lang ? me.lang === 'ru' : isRussian(`${me.verdict ?? ''} ${me.text}`)
   const one = me.from % 10 === 1 && me.from % 100 !== 11
-  const head = ru ? 'Мне как обычно, по версии Claude' : 'My usual, according to Claude'
+  const head = ru ? 'У Claude ко мне пара замечаний' : 'Claude has notes on me'
   const count = ru ? `по ${me.from} ${one ? 'реакции' : 'реакциям'}` : `from ${me.from} ${me.from === 1 ? 'reaction' : 'reactions'}`
   const build = (n: number) =>
     [head, '', ...(me.verdict ? [me.verdict, ''] : []), ...lines.slice(0, n), ...(n > 0 ? [''] : []), `${count} · ${link}`].join('\n')
@@ -439,8 +470,11 @@ export function cardText(me: Profile, link: string, limit = X_LIMIT): string {
 }
 
 // A new post on X with the card in it; the person posts it, or not, in the window that opens.
+// The link as a URL parser writes it back: the desktop draws a Link whose href is not in that canonical form as
+// plain text. encodeURIComponent leaves ' as is, and a parser encodes it in a query, so «reader's» broke the link.
 export function xIntent(text: string): string {
-  return `https://x.com/intent/post?text=${encodeURIComponent(text)}`
+  const q = encodeURIComponent(text).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return `https://x.com/intent/post?text=${q}`
 }
 
 // The model's answer as up to 5 clean lines: no bullets, numbering, quotes, intros like «Вот вкус:»

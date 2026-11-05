@@ -7,7 +7,7 @@ import {
   HINT,
   KINDS,
   NAME,
-  acceptLine,
+  checkLine,
   baseName,
   cardText,
   clip,
@@ -544,8 +544,21 @@ async function complete($: EngineInterface, args: CompleteArgs) {
 
 async function writeLine($: EngineInterface, id: string, kind: Kind, text: string, frag: string, key: string): Promise<void> {
   const { system, prompt } = linePrompt(kind, text, frag)
-  const reply = await complete($, { system, prompt, maxTokens: 120, effort: 'low', timeoutMs: 15000 })
-  const line = reply && reply.isAnswered ? acceptLine(reply.text, text, frag) : ''
+  const ask: CompleteArgs = { system, prompt, maxTokens: 120, effort: 'low', timeoutMs: 15000 }
+  const first = await complete($, ask)
+  let checked = first && first.isAnswered ? checkLine(first.text, text, frag) : { line: '', why: '' }
+  // A refused line was a silent gap under the reaction: the model is asked once more, told why,
+  // unless the reaction was taken back meanwhile.
+  const stillThere = async () => {
+    const x = (await read($, memberOf(marks, { requestId: messageOf(id) })))[id]
+    return !!x && x.keys[kind] === key && x.kinds.includes(kind)
+  }
+  if (first && first.isAnswered && !checked.line && (await stillThere())) {
+    const again = `${prompt}\n\nYour line «${clip(first.text, 140)}» was refused: ${checked.why}. Write the line again.`
+    const second = await complete($, { ...ask, prompt: again })
+    checked = second && second.isAnswered ? checkLine(second.text, text, frag) : checked
+  }
+  const line = checked.line
   // The reaction may have been removed while the model wrote: then no line and no lesson.
   let alive = false
   const state: Mark['lineState'] = line ? 'ready' : 'off'
@@ -1493,14 +1506,17 @@ export const register: Register = on => {
                   </Box>
                 )),
                 // The card goes out as a post: on X in a window with the text ready, elsewhere through Copy.
-                // Named by what they do; in a narrow pane they go under the count, still on the right.
+                // Named by what they do. In a wide pane the count is on the left and the actions on the right; in a
+                // narrow one the actions go under the count, on the same left edge, not in a step to the right.
                 // No X link in the terminal: one without link support prints the whole encoded address after it.
-                <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={2} rowGap={0}>
+                <Box flexDirection="row" flexWrap="wrap" alignItems="center" justifyContent="space-between" columnGap={2} rowGap={0}>
                   <Text {...caption} dimColor>
                     {`From ${me.from} reactions · ${shortDate(me.at)}`}
                   </Text>
-                  <Box flexDirection="row" alignItems="center" justifyContent="flex-end" gap={1} flexGrow={1} flexShrink={0}>
-                    {Link && e.surface !== 'terminal' ? <Link key="post-x" href={xIntent(cardText(me, REPO))} label="Post on X" /> : null}
+                  <Box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+                    {Link && e.surface !== 'terminal' ? (
+                      <Link key="post-x" href={xIntent(cardText(me, REPO))} label="Post on X" />
+                    ) : null}
                     <Button
                       key="copy-profile"
                       label="Copy"

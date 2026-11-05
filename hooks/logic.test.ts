@@ -3,6 +3,9 @@ import { expect, test } from 'claude-code/testing'
 import type { Glyph, Lesson, Signal } from '../types'
 import {
   acceptLine,
+  checkLine,
+  clip,
+  answerEnds,
   cleanLine,
   collapseRepeats,
   digestText,
@@ -200,16 +203,16 @@ test('the card: a post for X under 280, the link counted as 23, lines cut from t
   expect(xLength('кот')).toBe(3)
   expect(xLength('🤌')).toBe(2)
   const me = { v: 1 as const, verdict: 'Терпит всё, кроме пересказа', text: 'коротко\nбез воды', at: 1, from: 6, keys: [] }
-  expect(cardText(me, link)).toBe('Мне как обычно, по версии Claude\n\nТерпит всё, кроме пересказа\n\nкоротко\nбез воды\n\nпо 6 реакциям · github.com/phileeppov/chefkiss')
+  expect(cardText(me, link)).toBe('У Claude ко мне пара замечаний\n\nТерпит всё, кроме пересказа\n\nкоротко\nбез воды\n\nпо 6 реакциям · github.com/phileeppov/chefkiss')
   // The frame speaks the summary's language, with the count's word form.
   const en = { ...me, verdict: 'Wants proof.', text: 'Diff first', from: 21 }
-  expect(cardText(en, link)).toBe('My usual, according to Claude\n\nWants proof.\n\nDiff first\n\nfrom 21 reactions · github.com/phileeppov/chefkiss')
+  expect(cardText(en, link)).toBe('Claude has notes on me\n\nWants proof.\n\nDiff first\n\nfrom 21 reactions · github.com/phileeppov/chefkiss')
   expect(cardText({ ...me, from: 21 }, link)).toContain('по 21 реакции ·')
   for (const n of [2, 4, 11, 12, 14, 111]) expect(cardText({ ...me, from: n }, link)).toContain(`по ${n} реакциям ·`)
   expect(cardText({ ...me, from: 101 }, link)).toContain('по 101 реакции ·')
   // The frame follows the language the summary was written in, not the letters: English terms in Russian lines.
   const terms = { ...me, verdict: 'TypeScript strict, без any', text: 'tsc clean перед PR', lang: 'ru' as const }
-  expect(cardText(terms, link).startsWith('Мне как обычно')).toBe(true)
+  expect(cardText(terms, link).startsWith('У Claude ко мне')).toBe(true)
   // Five long lines do not fit: the last ones go, the verdict and the link stay.
   const long = { ...me, text: Array.from({ length: 5 }, (_, i) => `${i} ${'ж'.repeat(57)}`).join('\n') }
   const card = cardText(long, link)
@@ -221,7 +224,7 @@ test('the card: a post for X under 280, the link counted as 23, lines cut from t
   // Copy has no limit: every line goes.
   expect(cardText(long, link, Infinity)).toContain('4 ж')
   // A summary from before the verdict: the card goes without it.
-  expect(cardText({ ...me, verdict: undefined }, link)).toBe('Мне как обычно, по версии Claude\n\nкоротко\nбез воды\n\nпо 6 реакциям · github.com/phileeppov/chefkiss')
+  expect(cardText({ ...me, verdict: undefined }, link)).toBe('У Claude ко мне пара замечаний\n\nкоротко\nбез воды\n\nпо 6 реакциям · github.com/phileeppov/chefkiss')
   // The post window gets the text whole, line breaks too, and the link stays well under 2048.
   const href = xIntent(card)
   expect(href.startsWith('https://x.com/intent/post?text=')).toBe(true)
@@ -290,6 +293,16 @@ test('line request: the answer’s language, the piece, a warm opening for the h
   expect(en.system).toContain('got it:')
   expect(en.prompt).toContain('whole answer')
   expect(cleanLine('«понял: начинать с вывода»\nлишнее')).toBe('понял: начинать с вывода')
+  // A short answer goes whole.
+  expect(en.prompt).toContain('Your answer: «This is an English answer.»')
+  // A long answer whose point is at the end: the model sees the start and the end, not the middle.
+  const long = `Intro that sets things up. ${'Middle filler sentence. '.repeat(80)}The one line they loved is right here at the end.`
+  const cut = linePrompt('heart', long, '')
+  expect(cut.prompt).toContain('Your answer (its start and its end): «Intro that sets things up.')
+  expect(cut.prompt).toContain('The one line they loved is right here at the end.»')
+  expect(cut.prompt).toContain(' … ')
+  expect(answerEnds(long).text.length).toBeLessThanOrEqual(1203)
+  expect(answerEnds('x'.repeat(1200))).toEqual({ text: 'x'.repeat(1200), isCut: false })
 })
 
 test('packs: animated and static icons, text packs without pictures', async () => {
@@ -369,6 +382,49 @@ test('a long Claude line is cut at a comma, not mid-word', async () => {
   expect(cut.length).toBeLessThanOrEqual(90)
   expect(cut.endsWith('…')).toBe(false)
   expect(cut).toBe('понял: при коротком отзыве на фрагмент без лишних слов о тексте')
+  // The end of a phrase beats a later comma inside one: the demo line lost its last words to «concrete, specific».
+  expect(cleanLine('got it: skip stock announcement openers and emoji headlines; use concrete, specific wording instead')).toBe(
+    'got it: skip stock announcement openers and emoji headlines',
+  )
+  expect(cleanLine('got it: lead with the main number. Then one plain line on what it means for you, and stop right there, no recap')).toBe(
+    'got it: lead with the main number',
+  )
+  // No mark to cut at: at the last space, with «…», never mid-word.
+  const plainRun = cleanLine("got it: keep using analogies from the reader's own world that make the hidden failure mechanism visible to them")
+  expect(plainRun).toBe("got it: keep using analogies from the reader's own world that make the hidden failure…")
+  expect(plainRun.length).toBeLessThanOrEqual(90)
+})
+
+test('a refused line says why, so the model can be asked again', async () => {
+  const answer = 'Чашка чая не спасёт, но запах до утра держится, а кухня пустая.'
+  expect(checkLine('понял: чашка чая не спасёт, но запах', answer, '')).toEqual({
+    line: '',
+    why: 'it repeats «чашка чая не спасёт но» from the answer; say it in your own words',
+  })
+  expect(checkLine('Коротко и прямо', answer, '').why).toContain('must start with')
+  expect(checkLine('понял: см. файл a/b', answer, '').why).toContain('no links, paths')
+  expect(checkLine('понял: коротко и прямо', answer, '')).toEqual({ line: 'понял: коротко и прямо', why: '' })
+  expect(acceptLine('понял: чашка чая не спасёт, но запах', answer, '')).toBe('')
+  // A bare «Got it.» is no lesson.
+  expect(checkLine('Got it.', answer, '').why).toContain('says nothing')
+  // Words joined by a hyphen or an apostrophe are one word: naming the topic is not a five-word quote.
+  expect(checkLine("got it: the reader's own world matters", "use the reader's own world", '').line).toBe("got it: the reader's own world matters")
+  expect(checkLine('got it: skip work-from-home problems openers', 'Most work-from-home problems have the same cause.', '').line).toBe(
+    'got it: skip work-from-home problems openers',
+  )
+  // The model is told about the quote rule up front.
+  expect(linePrompt('slop', answer, '').system).toContain('five or more words in a row')
+})
+
+test('the X link is in the canonical form a URL parser writes, so the desktop draws it as a link', async () => {
+  const href = xIntent("Use analogies from the reader's own world (really)! *")
+  expect(new URL(href).href).toBe(href)
+  expect(href).toContain('reader%27s')
+  expect(decodeURIComponent(href.slice('https://x.com/intent/post?text='.length))).toBe("Use analogies from the reader's own world (really)! *")
+  // A cut never leaves half an emoji, which would make the link throw.
+  const emoji = clip(`${'x'.repeat(8)}🤌🤌`, 10)
+  expect(emoji).toBe(`${'x'.repeat(8)}…`)
+  expect(() => xIntent(emoji)).not.toThrow()
 })
 
 test('splitting: nested code fences, list item continuation, reference links, \r\n', async () => {

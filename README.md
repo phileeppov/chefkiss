@@ -1,13 +1,30 @@
-# chefkiss
+<p align="center"><img src="assets/readme-icon.png" width="104" alt="chefkiss icon: a poop emoji in a chef hat on a pink tile"></p>
 
-<!-- First screen: positioning is decided separately. Replace this block with the value line, the opening paragraph and the picture. -->
-> First screen to come.
+<h1 align="center">chefkiss</h1>
 
-A mod for Claude Code. It puts three reactions under every final answer Claude gives, and Claude keeps what it learns from them for later conversations.
+<p align="center">A 💩 button for AI slop. Claude takes the hint.</p>
+
+<p align="center"><img src="assets/demo.webp" width="800" alt="An edited recording of a real Claude Code session (camera, captions and speed-ups added): 💩 on a line from a LinkedIn post about coffee, and Claude replies 'got it: avoid stock LinkedIn-style hooks and tidy moral twists'; then 🎯 on a git tip and 🤌 on a coffee shop tagline, each with its own one-line reply."></p>
+
+Every answer in Claude Code gets three buttons: 🤌 for how it's said, 🎯 for what it says, 💩 for AI slop. Select a sentence first to react to that part only (in the desktop app). Claude replies to each click with a one-line takeaway, and new sessions start with your latest ones, 15 at most, in every project.
+
+```
+/plugin install chefkiss --marketplace phileeppov/chefkiss
+```
+
+Animated buttons in the desktop app, plain emoji in the terminal. The desktop app and other ways: [Install](#install).
+
+After a few reactions, the `/chefkiss` pane can sum you up: one line about you, up to five on how you like your answers. Cross out what it got wrong and post the rest. [Forget all](#reset-or-turn-off) erases lessons, the summary, and reactions.
+
+Why not a line in CLAUDE.md? You click in the moment instead of editing a file, you can react to a single sentence, and Claude's reply shows right away whether it understood.
+
+Lessons are stored on your machine, and the mod doesn't save Claude's answers. There's no chefkiss server.
+
+Each click costs one Sonnet call on your Claude Code account, about 500 tokens. Sum up is one more call, only when you press it. You can turn those calls off in Settings; details in [what gets sent where](#what-gets-sent-where).
 
 ## What it does
 
-- **Reactions.** Under each final answer: 🤌 Chef's kiss (how it's said), 🎯 Spot on (what it says), 💩 Slop (reads like AI). In the desktop app the row shows when you hover an answer, and hovering a button shows what it means; in the terminal the row is always there. Click a reaction again to take it back. Select part of the answer before clicking to react to that part.
+- **Reactions.** Under each final answer: 🤌 Chef's kiss, 🎯 Spot on, 💩 Slop. In the desktop app the row shows when you hover an answer, and hovering a button shows what it means; in the terminal the row is always there. Click a reaction again to take it back. Select part of the answer before clicking to react to that part (desktop app, or the terminal in fullscreen mode).
 - **💩 is for how it sounds.** If the answer is wrong, tell Claude in the chat. Your first 💩 brings a one-time hint about this.
 - **Swap the emoji.** In `/chefkiss` → Buttons you can put ❤️ on the first button, 🔥 on the second and 🤖 on the third. What the buttons mean and what Claude is told stay the same.
 - **Claude's line.** Claude answers each reaction with one short line, "got it: …", in Russian when the answer is in Russian and in English otherwise. With a mouse, hover the reaction to read it again; elsewhere it shows for a few seconds and then lives in the pane. That line is the lesson.
@@ -41,8 +58,8 @@ Three things, all text. Apart from them the mod sends nothing anywhere: it makes
 
 **The mod's own model calls**, on your Claude Code account like any other request:
 
-- Each reaction is one call to Sonnet, plus one to Haiku if Sonnet does not answer. It sends the start of the answer (up to 1,200 characters) and the selected part (up to 300). That is up to about 500 input tokens for English and 800 for Russian, estimated from the character count, and up to 120 output tokens.
-- **Sum up** in the pane is one call to Sonnet over all your lessons (plus one to Haiku if Sonnet does not answer), only when you press it. At the 300 lesson cap that is up to about 32,000 characters in (about 7,500 tokens for English, more for other languages) and up to 400 tokens out.
+- Each reaction is one call to Sonnet, plus one to Haiku if Sonnet does not answer. If the line fails the check above, the mod asks once more and says why. Each call sends the answer, up to 1,200 characters (a longer one as its first 800 and its last 400), and the selected part (up to 300); the second one also carries the refused line and the reason. That is up to about 500 input tokens per call for English and 800 for Russian (a little more for the second), estimated from the character count, and up to 120 output tokens.
+- **Sum up** in the pane is one call to Sonnet over all your lessons (plus one to Haiku if Sonnet does not answer), only when you press it. At the 300-lesson cap that is up to about 32,000 characters in (about 7,500 tokens for English, more for other languages) and up to 400 tokens out.
 
 Turning off **Claude writes lessons** in Settings stops both calls. Reactions still reach Claude as the note above. Claude writes no new lines, lessons or summary; the ones you already have keep going into new conversations until you turn off **Lessons in new chats** too.
 
@@ -73,7 +90,7 @@ In that field `~` means your home folder, and a relative path lands inside the c
 
 Claude Code with mods. Tested on 2.1.309 and 2.1.317. On 2.1.295 the tests pass except the pane's, which fake a newer engine; there the pane draws its text in one size.
 
-The desktop app draws the animated icons. The terminal cannot draw them: there the reactions are plain buttons with emoji, and the Kaomoji pack in `/chefkiss` → Pack swaps them for text faces. 🤌 joined emoji in 2020, so an older terminal font may show a box in its place. VS Code and the phone app have not been checked by eye.
+The desktop app draws the animated icons. The terminal cannot draw them: there the reactions are plain buttons with emoji, and the Kaomoji pack in `/chefkiss` → Pack swaps them for text faces. Outside fullscreen mode the mod cannot see what you select, so a reaction goes on the whole answer. 🤌 joined emoji in 2020, so an older terminal font may show a box in its place. VS Code and the phone app have not been checked by eye.
 
 ## Development
 
@@ -87,3 +104,5 @@ On engines before 2.1.308 the pane tests fail, because the test world reports 2.
 ## License
 
 MIT. Not affiliated with Anthropic.
+
+Made by [@phileeppov](https://x.com/phileeppov).
